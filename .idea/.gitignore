@@ -6,3 +6,6 @@
 /dataSources.local.xml
 /vcs.xml
 /modules.xml
+/data_source_mapping.xml
+/dataSources.xml
+/sqldialects.xml
