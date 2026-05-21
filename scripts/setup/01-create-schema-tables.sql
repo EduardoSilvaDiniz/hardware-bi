@@ -1,6 +1,5 @@
 CREATE SCHEMA IF NOT EXISTS datasets;
 SET search_path TO datasets;
-
 DROP TABLE IF EXISTS datasets.specification_gpu;
 CREATE TABLE datasets.specification_gpu
 (

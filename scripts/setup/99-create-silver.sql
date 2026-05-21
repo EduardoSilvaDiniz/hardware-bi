@@ -5,11 +5,6 @@ FROM datasets.specification_gpu as spec_gpu
          JOIN datasets.benchmark_passmark_gpu as pass_gpu ON spec_gpu.name = pass_gpu.gpuname
          JOIN datasets.benchmark_geekbench_gpu AS geek_gpu ON spec_gpu.name = geek_gpu.device;
 
-SELECT count(*)
-FROM datasets.specification_gpu as spec_gpu
-         JOIN datasets.benchmark_passmark_gpu as pass_gpu ON spec_gpu.name = pass_gpu.gpuname
-         JOIN datasets.benchmark_geekbench_gpu AS geek_gpu ON spec_gpu.name = geek_gpu.device;
-
 SELECT COALESCE(brand, 'Total Geral') as brand, count(*) as total
 FROM datasets.specification_gpu as spec_gpu
 WHERE brand ilike '%nvidia%'
@@ -122,10 +117,7 @@ WHERE name ILIKE '%quadro%'
     AND name NOT ILIKE '%geforce%'
     AND name NOT ILIKE '%riva%';
 
-SELECT *
-FROM gpus_silver;
-
-CREATE OR REPLACE FUNCTION datasets.limpar_date(texto_data TEXT)
+SELECT OR REPLACE FUNCTION datasets.limpar_date(texto_data TEXT)
     RETURNS DATE AS $$
 BEGIN
     RETURN CASE
