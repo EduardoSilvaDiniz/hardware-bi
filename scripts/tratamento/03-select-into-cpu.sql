@@ -1,4 +1,4 @@
-DROP TABLE IF EXISTS cpu_silver;
+DROP TABLE IF EXISTS cpu;
 SELECT bpc.cores::INTEGER                                     as cores,
        bpc.cores::INTEGER * 2                                 AS threads,
        split_part(name, ' ', 1)::tipo_fabricante              AS fabricante,
@@ -11,7 +11,7 @@ SELECT bpc.cores::INTEGER                                     as cores,
        bpc.tdp::DECIMAL(6, 2)                                 AS tdp,
        price::DECIMAL(10, 2)                                  AS preco,
        bpc.socket                                             AS socket
-INTO cpu_silver
+INTO cpu
 FROM datasets.specification_cpu_amd as sca
          JOIN datasets.benchmark_passmark_cpu bpc on sca.name = bpc.cpuname
 
@@ -56,21 +56,21 @@ SELECT DISTINCT ON (
 FROM datasets.specification_cpu_intel;
 
 
-UPDATE cpu_silver
+UPDATE cpu
 SET nome = 'Core i5-8500'
 where nome = 'Core i5+8500 (9M Cache';
 
-UPDATE cpu_silver
+UPDATE cpu
 SET nome = 'Core i5-8400'
 where nome = 'Core i5+8400 (9M Cache';
 
-UPDATE cpu_silver
+UPDATE cpu
 SET nome = 'Core i5-8700'
 where nome = 'Core i7+8700 (12M Cache';
 
 DELETE
-FROM cpu_silver
+FROM cpu
 where fabricante IS NULL;
 
 SELECT *
-FROM cpu_silver;
+FROM cpu;
