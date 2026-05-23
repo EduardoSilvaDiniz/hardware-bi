@@ -69,3 +69,13 @@ COPY datasets.steam_survey FROM '/datasets/search/steam-hardware-survey.csv'
     WITH (FORMAT csv, HEADER true, DELIMITER ',');
 SELECT *
 FROM datasets.steam_survey;
+
+COPY datasets.fabricantes_semicondutores(empresa, planta_tipo, cidade, pais, latitude, longitude)
+    FROM '/datasets/fabricantes.csv'
+    WITH (
+    FORMAT CSV,
+    HEADER true,
+    DELIMITER ';',
+    ENCODING 'UTF8'
+    );
+SELECT * FROM datasets.fabricantes_semicondutores;

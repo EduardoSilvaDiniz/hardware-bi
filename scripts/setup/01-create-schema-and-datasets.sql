@@ -272,3 +272,13 @@ CREATE TABLE datasets.steam_survey
     change     TEXT,
     percentage TEXT
 );
+
+DROP TABLE IF EXISTS datasets.fabricantes_semicondutores;
+CREATE TABLE IF NOT EXISTS datasets.fabricantes_semicondutores (
+    empresa TEXT,
+    planta_tipo TEXT,
+    cidade TEXT,
+    pais TEXT,
+    latitude TEXT,
+    longitude TEXT
+);
