@@ -70,6 +70,8 @@ COPY datasets.steam_survey FROM '/datasets/search/steam-hardware-survey.csv'
 SELECT *
 FROM datasets.steam_survey;
 
+DELETE FROM datasets.steam_survey where date = '2026-02-01' AND category = 'Physical CPUs';
+
 COPY datasets.fabricantes_semicondutores(empresa, planta_tipo, cidade, pais, latitude, longitude)
     FROM '/datasets/fabricantes.csv'
     WITH (
@@ -79,3 +81,4 @@ COPY datasets.fabricantes_semicondutores(empresa, planta_tipo, cidade, pais, lat
     ENCODING 'UTF8'
     );
 SELECT * FROM datasets.fabricantes_semicondutores;
+
