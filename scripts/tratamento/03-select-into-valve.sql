@@ -1,6 +1,5 @@
 DROP TABLE  IF EXISTS pesquisa_valve;
 WITH PctInicialPorAno AS (
-    -- 1. Tratamos o Infinity no valor inicial
     SELECT DISTINCT ON (EXTRACT(YEAR FROM date::DATE), category, name)
         EXTRACT(YEAR FROM date::DATE) AS ano,
         category,
@@ -13,7 +12,6 @@ WITH PctInicialPorAno AS (
     ORDER BY EXTRACT(YEAR FROM date::DATE), category, name, date::DATE ASC
 ),
 SomasMensais AS (
-    -- 2. Tratamos o Infinity nas somas mensais (usando change_limpo)
     SELECT
         EXTRACT(YEAR FROM date::DATE) AS ano,
         category,
@@ -32,7 +30,6 @@ SomasMensais AS (
         ROUND(SUM(CASE WHEN EXTRACT(MONTH FROM date::DATE) = 12 THEN change_limpo ELSE 0 END), 4) AS dez,
         SUM(change_limpo) AS total_change_bruto
     FROM (
-        -- Subquery para limpar o 'change' antes de fazer o SUM
         SELECT
             date, category, name,
             CASE
@@ -43,7 +40,6 @@ SomasMensais AS (
     ) sub
     GROUP BY EXTRACT(YEAR FROM date::DATE), category, name
 )
--- 3. Juntamos tudo com segurança para o Java ler
 SELECT
     s.ano,
     s.category,
