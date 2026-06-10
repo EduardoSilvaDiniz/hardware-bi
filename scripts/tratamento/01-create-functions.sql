@@ -33,24 +33,43 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION search_dual_gpu(gpu_name TEXT)
-    RETURNS BOOLEAN AS
+CREATE OR REPLACE FUNCTION get_gpu_chip_count(gpu_name TEXT)
+    RETURNS SMALLINT AS
 $$
+DECLARE
+    nome_limpo TEXT := UPPER(gpu_name);
 BEGIN
-    RETURN array_length(string_to_array(UPPER(gpu_name), 'X2'), 1) = 2;
-end;
+    IF nome_limpo ILIKE '%X4%' THEN
+        RETURN 4;
+
+    ELSIF nome_limpo ILIKE '%X2%' THEN
+        RETURN 2;
+
+    ELSE
+        RETURN 1;
+    END IF;
+END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION replace_x2_to_none(name TEXT)
+CREATE OR REPLACE FUNCTION clean_gpu_architecture(gpu_name TEXT)
     RETURNS TEXT AS
 $$
+DECLARE
+    nome_processado TEXT := UPPER(gpu_name);
 BEGIN
-    RETURN CASE
-               WHEN name ILIKE '%x2%' THEN REPLACE(REPLACE(UPPER(name), 'X2', ''), 'MOBILE', '')
-               WHEN name ILIKE '%mobile%' THEN REPLACE(UPPER(name), 'MOBILE', '')
-               ELSE name
-        END;
-end;
+    IF nome_processado ILIKE '%X4%'
+        OR nome_processado ILIKE '%X2%'
+        OR nome_processado ILIKE '%MOBILE%' THEN
+
+        nome_processado := REPLACE(nome_processado, 'X4', '');
+        nome_processado := REPLACE(nome_processado, 'X2', '');
+        nome_processado := REPLACE(nome_processado, 'MOBILE', '');
+
+        RETURN TRIM(REGEXP_REPLACE(nome_processado, '\s+', ' ', 'g'));
+    END IF;
+
+    RETURN nome_processado;
+END;
 $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION format_memory_size(memory_size TEXT)
@@ -62,12 +81,8 @@ BEGIN
     texto_tratado := CASE
                          WHEN memory_size ILIKE '%System Shared%' THEN NULL
 
-                         WHEN memory_size ILIKE '%x2%' THEN
-                             (SPLIT_PART(memory_size, ' ', 1)::NUMERIC * 2)::TEXT || ' ' ||
-                             SPLIT_PART(memory_size, ' ', 2)
-
-                         WHEN memory_size ILIKE '%x4%' THEN
-                             (SPLIT_PART(memory_size, ' ', 1)::NUMERIC * 4)::TEXT || ' ' ||
+                         WHEN memory_size ILIKE '%x2%' OR memory_size ILIKE '%x4%' THEN
+                             (SPLIT_PART(memory_size, ' ', 1)::NUMERIC)::TEXT || ' ' ||
                              SPLIT_PART(memory_size, ' ', 2)
 
                          ELSE memory_size
@@ -81,18 +96,11 @@ BEGIN
 
     RETURN CASE
                WHEN texto_tratado ILIKE '%GB%' THEN
-                   (REPLACE(UPPER(texto_tratado), 'GB', '')::DECIMAL(12, 2)) * 1024
+                   REPLACE(texto_tratado, 'GB', '')::NUMERIC * 1024
 
                WHEN texto_tratado ILIKE '%MB%' THEN
-                   REPLACE(UPPER(texto_tratado), 'MB', '')::DECIMAL(12, 2)
-
-               ELSE
-                   texto_tratado::NUMERIC
+                   REPLACE(texto_tratado, 'MB', '')::NUMERIC
         END;
-
-EXCEPTION
-    WHEN OTHERS THEN
-        RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -103,7 +111,7 @@ BEGIN
     RETURN CASE
                WHEN clock ILIKE '%System Shared%' THEN NULL
                ELSE
-                   (string_to_array(clock, ' '))[1]::NUMERIC
+                   split_part(clock, ' ', 1)::NUMERIC
         END;
 END;
 $$ LANGUAGE plpgsql;
@@ -117,7 +125,6 @@ BEGIN
     texto_tratado := CASE
                          WHEN clock ILIKE '%effective%' THEN
                              SPLIT_PART(clock, ' ', 3) || ' ' || split_part(clock, ' ', 4)
-                         ELSE NULL
         END;
     IF texto_tratado IS NULL THEN
         RETURN NULL;
@@ -255,9 +262,9 @@ DECLARE
 BEGIN
     RETURN CASE
                WHEN input ILIKE '%x2%' THEN
-                   split_part(input, ' ', 1)::NUMERIC * 2
+                   split_part(input, ' ', 1)::NUMERIC
                WHEN input ILIKE '%x4%' THEN
-                   split_part(input, ' ', 1)::NUMERIC * 4
+                   split_part(input, ' ', 1)::NUMERIC
                else input::NUMERIC
         END;
 END;
@@ -278,7 +285,7 @@ CREATE OR REPLACE FUNCTION format_bandwidth(input TEXT)
     RETURNS NUMERIC AS
 $$
 DECLARE
-    input_clean TEXT;
+    input_clean    TEXT;
     partes_texto   TEXT[];
     valor_numerico NUMERIC;
 BEGIN
@@ -298,3 +305,99 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+CREATE OR REPLACE FUNCTION extract_ram_type(memory_text TEXT)
+    RETURNS TEXT AS
+$$
+DECLARE
+    texto_limpo TEXT := UPPER(memory_text);
+    resultado TEXT;
+BEGIN
+    -- 1. Tenta capturar variações modernas e mobile primeiro (LPDDR3, LPDDR4, DDR3L, DDR3U)
+    resultado := substring(texto_limpo FROM '(LPDDR\d[A-Z]?|DDR\d[A-Z]?)');
+
+    -- 2. Se não achou com letras específicas, busca o DDR puro padrão (DDR3, DDR4, DDR2)
+    IF resultado IS NULL THEN
+        resultado := substring(texto_limpo FROM '(DDR\d)');
+    END IF;
+
+    -- 3. Retorna o resultado encontrado (se for NULL, retorna NULL naturalmente)
+    RETURN resultado;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION format_amd_cache(l1 INT, l2 INT, l3 INT)
+    RETURNS TEXT AS
+$$
+DECLARE
+    resultado TEXT := '';
+BEGIN
+    -- Formata o L1 (Geralmente mantido em KB por ser pequeno)
+    IF l1 IS NOT NULL AND l1 > 0 THEN
+        resultado := resultado || 'L1: ' || l1 || ' KB';
+    END IF;
+
+    -- Formata o L2 (Converte para MB se for maior ou igual a 1024 KB)
+    IF l2 IS NOT NULL AND l2 > 0 THEN
+        IF resultado <> '' THEN resultado := resultado || ' | '; END IF;
+
+        IF l2 >= 1024 THEN
+            resultado := resultado || 'L2: ' || (l2 / 1024) || ' MB';
+        ELSE
+            resultado := resultado || 'L2: ' || l2 || ' KB';
+        END IF;
+    END IF;
+
+    -- Formata o L3 (Geralmente grande, converte para MB)
+    IF l3 IS NOT NULL AND l3 > 0 THEN
+        IF resultado <> '' THEN resultado := resultado || ' | '; END IF;
+
+        IF l3 >= 1024 THEN
+            resultado := resultado || 'L3: ' || (l3 / 1024) || ' MB';
+        ELSE
+            resultado := resultado || 'L3: ' || l3 || ' KB';
+        END IF;
+    END IF;
+
+    -- Se não houver nenhum cache, retorna NULL
+    IF resultado = '' THEN
+        RETURN NULL;
+    END IF;
+
+    RETURN resultado;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION get_cpu_type(segment_text TEXT)
+    RETURNS TEXT AS
+$$
+DECLARE
+    texto_limpo TEXT := UPPER(TRIM(segment_text));
+BEGIN
+    -- Se o campo estiver limpo ou nulo, retorna NULL de cara
+    IF segment_text IS NULL OR texto_limpo = '' THEN
+        RETURN NULL;
+    END IF;
+
+    RETURN CASE
+        -- 1. Categoria: SERVIDORES E WORKSTATIONS
+        WHEN texto_limpo LIKE '%SERVER%'
+          OR texto_limpo LIKE '%WORKSTATION%' THEN 'Servidor'
+
+        -- 2. Categoria: DISPOSITIVOS PORTÁTEIS / MOBILE
+        WHEN texto_limpo LIKE '%LAPTOP%'
+          OR texto_limpo LIKE '%MOBILE%'
+          OR texto_limpo LIKE '%TABLE%' THEN 'Notebook'
+
+        -- 3. Categoria: EMBARCADOS
+        WHEN texto_limpo LIKE '%EMBEDDED%' THEN 'Embarcado'
+
+        -- 4. Categoria: COMPUTADORES DE MESA (DESKTOP)
+        WHEN texto_limpo LIKE '%DESKTOP%'
+          OR texto_limpo LIKE '%BOXED%'
+          OR texto_limpo LIKE '%ALL-IN-ONE%' THEN 'Desktop'
+
+        -- Se vier algum termo bizarro que não mapeamos, mantém o original limpo
+        ELSE INITCAP(segment_text)
+    END;
+END;
+$$ LANGUAGE plpgsql;
