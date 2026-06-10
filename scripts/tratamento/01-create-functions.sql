@@ -312,15 +312,12 @@ DECLARE
     texto_limpo TEXT := UPPER(memory_text);
     resultado TEXT;
 BEGIN
-    -- 1. Tenta capturar variações modernas e mobile primeiro (LPDDR3, LPDDR4, DDR3L, DDR3U)
     resultado := substring(texto_limpo FROM '(LPDDR\d[A-Z]?|DDR\d[A-Z]?)');
 
-    -- 2. Se não achou com letras específicas, busca o DDR puro padrão (DDR3, DDR4, DDR2)
     IF resultado IS NULL THEN
         resultado := substring(texto_limpo FROM '(DDR\d)');
     END IF;
 
-    -- 3. Retorna o resultado encontrado (se for NULL, retorna NULL naturalmente)
     RETURN resultado;
 END;
 $$ LANGUAGE plpgsql;
@@ -331,12 +328,10 @@ $$
 DECLARE
     resultado TEXT := '';
 BEGIN
-    -- Formata o L1 (Geralmente mantido em KB por ser pequeno)
     IF l1 IS NOT NULL AND l1 > 0 THEN
         resultado := resultado || 'L1: ' || l1 || ' KB';
     END IF;
 
-    -- Formata o L2 (Converte para MB se for maior ou igual a 1024 KB)
     IF l2 IS NOT NULL AND l2 > 0 THEN
         IF resultado <> '' THEN resultado := resultado || ' | '; END IF;
 
@@ -347,7 +342,6 @@ BEGIN
         END IF;
     END IF;
 
-    -- Formata o L3 (Geralmente grande, converte para MB)
     IF l3 IS NOT NULL AND l3 > 0 THEN
         IF resultado <> '' THEN resultado := resultado || ' | '; END IF;
 
@@ -358,7 +352,6 @@ BEGIN
         END IF;
     END IF;
 
-    -- Se não houver nenhum cache, retorna NULL
     IF resultado = '' THEN
         RETURN NULL;
     END IF;
@@ -373,31 +366,116 @@ $$
 DECLARE
     texto_limpo TEXT := UPPER(TRIM(segment_text));
 BEGIN
-    -- Se o campo estiver limpo ou nulo, retorna NULL de cara
     IF segment_text IS NULL OR texto_limpo = '' THEN
         RETURN NULL;
     END IF;
 
     RETURN CASE
-        -- 1. Categoria: SERVIDORES E WORKSTATIONS
         WHEN texto_limpo LIKE '%SERVER%'
           OR texto_limpo LIKE '%WORKSTATION%' THEN 'Servidor'
 
-        -- 2. Categoria: DISPOSITIVOS PORTÁTEIS / MOBILE
         WHEN texto_limpo LIKE '%LAPTOP%'
           OR texto_limpo LIKE '%MOBILE%'
           OR texto_limpo LIKE '%TABLE%' THEN 'Notebook'
 
-        -- 3. Categoria: EMBARCADOS
         WHEN texto_limpo LIKE '%EMBEDDED%' THEN 'Embarcado'
 
-        -- 4. Categoria: COMPUTADORES DE MESA (DESKTOP)
         WHEN texto_limpo LIKE '%DESKTOP%'
           OR texto_limpo LIKE '%BOXED%'
           OR texto_limpo LIKE '%ALL-IN-ONE%' THEN 'Desktop'
 
-        -- Se vier algum termo bizarro que não mapeamos, mantém o original limpo
         ELSE INITCAP(segment_text)
+    END;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION clean_cpu_name(raw_name TEXT)
+    RETURNS TEXT AS
+$$
+DECLARE
+    nome_limpo TEXT := TRIM(raw_name);
+    modelo TEXT;
+    clock TEXT;
+BEGIN
+    IF raw_name IS NULL OR nome_limpo = '' THEN
+        RETURN NULL;
+    END IF;
+
+
+    clock := substring(nome_limpo FROM '(?i)(\d+(?:\.\d+)?\s*[GM]Hz)');
+
+    modelo := CASE
+        WHEN nome_limpo ~* 'Core\s+i\d\+\d+' THEN
+            substring(nome_limpo FROM '(?i)(Intel\s+Core\s+i\d\+\d+)')
+
+        WHEN nome_limpo ~* 'Xeon' THEN
+            CASE
+                WHEN nome_limpo ~* 'Pentium\s+III\s+Xeon' THEN 'Intel Pentium III Xeon'
+                WHEN nome_limpo ~* 'Pentium\s+II\s+Xeon' THEN 'Intel Pentium II Xeon'
+                ELSE 'Intel Xeon'
+            END
+
+        WHEN nome_limpo ~* 'Itanium' THEN 'Intel Itanium'
+
+        WHEN nome_limpo ~* 'Celeron' THEN
+            CASE
+                WHEN nome_limpo ~* 'Mobile\s+Intel\s+Celeron' THEN 'Mobile Intel Celeron'
+                WHEN nome_limpo ~* 'Celeron\s+M' THEN 'Intel Celeron M'
+                ELSE 'Intel Celeron'
+            END
+
+        WHEN nome_limpo ~* 'Pentium' THEN
+            CASE
+                WHEN nome_limpo ~* 'Mobile\s+Intel\s+Pentium\s+4\s*-\s*M' THEN 'Mobile Intel Pentium 4 - M'
+                WHEN nome_limpo ~* 'Mobile\s+Intel\s+Pentium\s+III\s*-\s*M' THEN 'Mobile Intel Pentium III - M'
+                WHEN nome_limpo ~* 'Mobile\s+Intel\s+Pentium\s+III' THEN 'Mobile Intel Pentium III'
+                WHEN nome_limpo ~* 'Mobile\s+Intel\s+Pentium\s+II' THEN 'Mobile Intel Pentium II'
+                WHEN nome_limpo ~* 'Pentium\s+M\s+ULV' THEN 'Intel Pentium M ULV'
+                WHEN nome_limpo ~* 'Pentium\s+M\s+LV' THEN 'Intel Pentium M LV'
+                WHEN nome_limpo ~* 'Pentium\s+M' THEN 'Intel Pentium M'
+                WHEN nome_limpo ~* 'Pentium\s+Pro' THEN 'Intel Pentium Pro'
+                WHEN nome_limpo ~* 'MMX' THEN 'Intel Pentium w/ MMX'
+                WHEN nome_limpo ~* 'Pentium\s+4' THEN 'Intel Pentium 4'
+                WHEN nome_limpo ~* 'Pentium\s+III' THEN 'Intel Pentium III'
+                ELSE 'Intel Pentium'
+            END
+
+        ELSE split_part(nome_limpo, '(', 1)
+    END;
+
+    IF modelo IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    IF clock IS NOT NULL THEN
+        RETURN TRIM(modelo) || ' (' || LOWER(TRIM(clock)) || ')';
+    ELSE
+        RETURN TRIM(modelo);
+    END IF;
+
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION get_fabricante_by_name(processor_name TEXT)
+    RETURNS tipo_fabricante AS
+$$
+DECLARE
+    nome_limpo TEXT := TRIM(processor_name);
+    primeira_palavra TEXT;
+BEGIN
+    IF processor_name IS NULL OR nome_limpo = '' THEN
+        RETURN NULL;
+    END IF;
+
+    primeira_palavra := UPPER(split_part(nome_limpo, ' ', 1));
+
+    RETURN CASE
+        WHEN nome_limpo ~* 'AMD'    THEN 'AMD'::tipo_fabricante
+        WHEN nome_limpo ~* 'INTEL'  THEN 'INTEL'::tipo_fabricante
+        WHEN nome_limpo ~* 'NVIDIA' THEN 'NVIDIA'::tipo_fabricante
+
+        WHEN primeira_palavra IN ('PENTIUM', '64-BIT', 'MOBILE', 'CELERON', 'XEON')
+                                    THEN 'INTEL'::tipo_fabricante
     END;
 END;
 $$ LANGUAGE plpgsql;
